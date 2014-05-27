@@ -1,0 +1,142 @@
+#!/usr/bin/env python
+#
+# Copyright (c) 2014 Marin Atanasov Nikolov <dnaeon@gmail.com>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer
+#    in this position and unchanged.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+# IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+# NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""
+vevents-cli is an application used for monitoring
+events of a VMware vSphere server from the command-line.
+
+"""
+
+import logging
+import pyVmomi
+
+from docopt import docopt
+from vconnector.core import VConnector
+from vconnector.core import VConnectorDatabase
+
+def monitor_vsphere_events(agent):
+    """
+    Continuously monitors the VMware vSphere Events
+
+    For monitoring of VMware vSphere Events we use an EventHistoryCollector
+    and monitor for any new events in the collector.
+
+    For more information about EventHistoryCollector,
+    please refer to this chapter of the VMware vSphere API documentation:
+    
+        - http://pubs.vmware.com/vsphere-55/index.jsp#com.vmware.wssdk.pg.doc/PG_Alarms.17.1.html
+
+    Args:
+        host (tuple): Connection details of the vSphere host we connect to
+    
+    """
+    client = VConnector(
+        user=agent['user'],
+        pwd=agent['pwd'],
+        host=agent['host']
+    )
+    client.connect()
+
+    # Create an Event filter spec and a collector for our Events
+    logging.info('Getting Event Collector')
+    filter_spec = pyVmomi.vim.event.EventFilterSpec()
+    collector   = client.si.content.eventManager.CreateCollectorForEvents(filter=filter_spec)
+
+    logging.info('Retrieving Events from vSphere host %s', agent['host'])
+    last_event_key = None
+    try:
+        while True:
+            # New events will be inserted at the first element in the collector.latestPage list
+            event = collector.latestPage[0]
+
+            if last_event_key != event.key:
+                print '[%s] %s' % (event.createdTime, event.fullFormattedMessage)
+                last_event_key = event.key
+    except KeyboardInterrupt:
+        print '\nCaught keyboard interrupt, exiting ...'
+
+    collector.DestroyCollector()
+    client.disconnect()
+
+def get_vsphere_agent(db, host):
+    """
+    Get the connection details for a vSphere Agent from the database
+
+    Args:
+        db   (str): Path to the vConnector database file
+        host (str): Hostname of the vSphere host from the database
+
+    Returns:
+        The connection details for the vSphere host if found, None otherwise
+
+    """
+    db = VConnectorDatabase(db)
+    agents = db.get_agents(only_enabled=True)
+
+    for agent in agents:
+        if agent['host'] == host:
+            break
+    else:
+        return None
+
+    return agent
+
+def main():
+    usage="""
+Usage: vevents-cli [-D] [-d <db>] -H <host>
+       vevents-cli (-h|-v)
+
+Options:
+  -h, --help                            Display this usage info
+  -v, --version                         Display version and exit
+  -D, --debug                           Run in debug mode, be more verbose
+  -d <db>, --database <db>              Path to the vConnector SQLite database file
+                                        [default: /var/lib/vconnector/vconnector.db]
+  -H <host>, --host <host>              Specify the vSphere hostname to connect to
+
+"""
+
+    args = docopt(usage, version="0.1.0")
+
+    level = logging.DEBUG if args['--debug'] else logging.INFO
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - vevents-cli[%(process)s]: %(message)s',
+        level=level
+    )
+
+    agent = get_vsphere_agent(
+        db=args['--database'],
+        host=args['--host']
+    )
+
+    if not agent:
+        raise SystemExit, 'vSphere Agent %s is not registered or is disabled' % args['--host']
+
+    monitor_vsphere_events(agent=agent)
+
+if __name__ == '__main__':
+    main()
+
