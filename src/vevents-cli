@@ -33,11 +33,12 @@ events of a VMware vSphere server from the command-line.
 import logging
 import pyVmomi
 
+from time import sleep
 from docopt import docopt
 from vconnector.core import VConnector
 from vconnector.core import VConnectorDatabase
 
-def monitor_vsphere_events(agent):
+def monitor_vsphere_events(agent, interval):
     """
     Continuously monitors the VMware vSphere Events
 
@@ -50,7 +51,8 @@ def monitor_vsphere_events(agent):
         - http://pubs.vmware.com/vsphere-55/index.jsp#com.vmware.wssdk.pg.doc/PG_Alarms.17.1.html
 
     Args:
-        host (tuple): Connection details of the vSphere host we connect to
+        host     (tuple): Connection details of the vSphere host we connect to
+        interval (float): Check for new events every 'interval' seconds
     
     """
     client = VConnector(
@@ -75,6 +77,8 @@ def monitor_vsphere_events(agent):
             if last_event_key != event.key:
                 print '[%s] %s' % (event.createdTime, event.fullFormattedMessage)
                 last_event_key = event.key
+
+            sleep(float(interval))
     except KeyboardInterrupt:
         print '\nCaught keyboard interrupt, exiting ...'
 
@@ -106,7 +110,7 @@ def get_vsphere_agent(db, host):
 
 def main():
     usage="""
-Usage: vevents-cli [-D] [-d <db>] -H <host>
+Usage: vevents-cli [-D] [-d <db>] [-i <interval>] -H <host>
        vevents-cli (-h|-v)
 
 Options:
@@ -115,6 +119,8 @@ Options:
   -D, --debug                           Run in debug mode, be more verbose
   -d <db>, --database <db>              Path to the vConnector SQLite database file
                                         [default: /var/lib/vconnector/vconnector.db]
+  -i <interval>, --interval <interval>  Check for new events every 'interval' seconds
+                                        [default: 1.0]
   -H <host>, --host <host>              Specify the vSphere hostname to connect to
 
 """
@@ -135,7 +141,7 @@ Options:
     if not agent:
         raise SystemExit, 'vSphere Agent %s is not registered or is disabled' % args['--host']
 
-    monitor_vsphere_events(agent=agent)
+    monitor_vsphere_events(agent=agent, interval=args['--interval'])
 
 if __name__ == '__main__':
     main()
