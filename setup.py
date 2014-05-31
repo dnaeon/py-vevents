@@ -1,6 +1,6 @@
 from setuptools import setup
 
-setup(name='vevents-cli',
+setup(name='vevents',
       version='0.1.0',
       description='Viewing VMware vSphere Events from the command-line',
       author='Marin Atanasov Nikolov',
